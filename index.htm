@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>SplitEasy — International Expense Splitter</title>
-  <meta name="description" content="Split expenses with friends. Multi-expense, multi-currency, balances, and settlements." />
+  <meta name="description" content="Split expenses with friends. Multi-expense, multi-currency, balances, receipts, and history." />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -25,6 +25,7 @@
         <option value="EUR">EUR (€)</option>
         <option value="GBP">GBP (£)</option>
         <option value="JPY">JPY (¥)</option>
+        <option value="MMK">MMK (Ks)</option>
       </select>
 
       <button id="btnShare" class="btn btn-ghost" type="button">Share</button>
@@ -34,7 +35,7 @@
 
   <main class="container">
     <section class="grid">
-      <!-- LEFT: Setup + Add Expense -->
+      <!-- LEFT -->
       <div class="card">
         <h2>Group</h2>
         <p class="muted">Add members first. Then add expenses. Everything saves automatically.</p>
@@ -50,13 +51,14 @@
 
         <h2>Add Expense</h2>
         <div class="form">
-          <label class="label">Title</label>
+          <label class="label">Title (What did you buy?)</label>
           <input id="expTitle" class="input" type="text" placeholder="Dinner, Taxi, Hotel..." maxlength="60" />
 
           <div class="row">
             <div class="grow">
-              <label class="label">Amount</label>
-              <input id="expAmount" class="input" type="number" inputmode="decimal" placeholder="0.00" min="0" step="0.01" />
+              <label class="label">Date & time</label>
+              <input id="expDateTime" class="input" type="datetime-local" />
+              <div class="tiny muted">Tip: default = now. You can edit it.</div>
             </div>
             <div class="grow">
               <label class="label">Paid by</label>
@@ -66,24 +68,43 @@
 
           <div class="row">
             <div class="grow">
+              <label class="label">Amount</label>
+              <input id="expAmount" class="input" type="number" inputmode="decimal" placeholder="0.00" min="0" step="0.01" />
+            </div>
+            <div class="grow">
               <label class="label">Split type</label>
               <select id="splitType" class="select">
                 <option value="equal" selected>Equal split</option>
                 <option value="custom">Custom shares</option>
               </select>
             </div>
+          </div>
+
+          <div class="row">
             <div class="grow">
               <label class="label">Participants</label>
               <button id="btnSelectAll" class="btn btn-ghost" type="button">Select all</button>
+            </div>
+            <div class="grow">
+              <label class="label">Receipt photo (optional)</label>
+              <!-- camera on mobile; file on laptop -->
+              <input id="expReceipt" class="input" type="file" accept="image/*" capture="environment" />
+              <div class="tiny muted">Mobile: opens camera. Laptop: choose image file.</div>
+            </div>
+          </div>
+
+          <div id="receiptPreview" class="receipt hidden">
+            <div class="tiny muted">Preview</div>
+            <img id="receiptImg" alt="Receipt preview" />
+            <div class="row">
+              <button id="btnClearReceipt" class="btn btn-ghost" type="button">Remove photo</button>
             </div>
           </div>
 
           <div id="participantsWrap" class="participants"></div>
 
           <div id="customSharesWrap" class="custom hidden">
-            <div class="note">
-              Custom shares: set how much each person should pay (must sum to total).
-            </div>
+            <div class="note">Custom shares: set how much each person should pay (must sum to total).</div>
             <div id="customShares" class="custom-grid"></div>
           </div>
 
@@ -96,11 +117,27 @@
         </div>
       </div>
 
-      <!-- RIGHT: Expenses + Results -->
+      <!-- RIGHT -->
       <div class="card">
         <div class="card-header">
-          <h2>Expenses</h2>
+          <h2>Expenses (History)</h2>
           <div class="tiny muted" id="autosaveStatus">Auto-saved</div>
+        </div>
+
+        <div class="row">
+          <div class="grow">
+            <label class="label">Sort</label>
+            <select id="sortBy" class="select">
+              <option value="newest" selected>Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="amountDesc">Amount (high → low)</option>
+              <option value="amountAsc">Amount (low → high)</option>
+            </select>
+          </div>
+          <div class="grow">
+            <label class="label">Search</label>
+            <input id="search" class="input" type="text" placeholder="Search by title..." />
+          </div>
         </div>
 
         <div id="expensesList" class="list"></div>
@@ -128,8 +165,19 @@
     </section>
 
     <footer class="footer">
-      <span class="muted">SplitEasy v1 • LocalStorage • No login • Works on GitHub Pages</span>
+      <span class="muted">SplitEasy v1.1 • Date/Time • Receipt Photo • LocalStorage • GitHub Pages</span>
     </footer>
+
+    <!-- simple image modal -->
+    <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+      <div class="modal-card">
+        <div class="row" style="justify-content:space-between;">
+          <div class="title">Receipt</div>
+          <button id="btnCloseModal" class="btn btn-ghost" type="button">Close</button>
+        </div>
+        <img id="modalImg" alt="Receipt" />
+      </div>
+    </div>
   </main>
 
   <script src="app.js"></script>
