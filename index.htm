@@ -3,28 +3,84 @@
 <head>
   <title>SplitEasy</title>
   <style>
-    body { font-family: Arial; text-align: center; margin-top: 50px; }
-    input { padding: 8px; margin: 5px; }
-    button { padding: 8px 15px; }
+    body {
+      font-family: Arial, sans-serif;
+      background: linear-gradient(135deg, #4CAF50, #2E8B57);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+
+    .card {
+      background: white;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+      text-align: center;
+      width: 300px;
+    }
+
+    h1 {
+      margin-bottom: 20px;
+    }
+
+    input {
+      width: 100%;
+      padding: 10px;
+      margin: 8px 0;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+    }
+
+    button {
+      width: 100%;
+      padding: 10px;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    button:hover {
+      background: #45a049;
+    }
+
+    #result {
+      margin-top: 15px;
+      font-weight: bold;
+      color: #333;
+    }
   </style>
 </head>
 <body>
 
-  <h1>SplitEasy</h1>
+  <div class="card">
+    <h1>SplitEasy</h1>
 
-  <input type="text" id="names" placeholder="Enter names separated by comma">
-  <br>
-  <input type="number" id="amount" placeholder="Total amount">
-  <br>
-  <button onclick="splitExpense()">Split Equally</button>
+    <input type="text" id="names" placeholder="Enter names (John, Mike)">
+    <input type="number" id="amount" placeholder="Total amount">
 
-  <h3 id="result"></h3>
+    <button onclick="splitExpense()">Split Equally</button>
+
+    <div id="result"></div>
+  </div>
 
   <script>
     function splitExpense() {
       let names = document.getElementById("names").value.split(",");
       let amount = parseFloat(document.getElementById("amount").value);
+
+      if (!amount || names.length === 0) {
+        document.getElementById("result").innerHTML = "Please enter valid data.";
+        return;
+      }
+
       let each = amount / names.length;
+
       document.getElementById("result").innerHTML =
         "Each person pays: $" + each.toFixed(2);
     }
