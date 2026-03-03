@@ -630,7 +630,6 @@ function wire(){
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeModal();
 });
-}
 
 async function fileToDataUrl(file){
   // NOTE: localStorage limit exists. Keep images small.
