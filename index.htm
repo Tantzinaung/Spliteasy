@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>SplitEasy</title>
+  <style>
+    body { font-family: Arial; text-align: center; margin-top: 50px; }
+    input { padding: 8px; margin: 5px; }
+    button { padding: 8px 15px; }
+  </style>
+</head>
+<body>
+
+  <h1>SplitEasy</h1>
+
+  <input type="text" id="names" placeholder="Enter names separated by comma">
+  <br>
+  <input type="number" id="amount" placeholder="Total amount">
+  <br>
+  <button onclick="splitExpense()">Split Equally</button>
+
+  <h3 id="result"></h3>
+
+  <script>
+    function splitExpense() {
+      let names = document.getElementById("names").value.split(",");
+      let amount = parseFloat(document.getElementById("amount").value);
+      let each = amount / names.length;
+      document.getElementById("result").innerHTML =
+        "Each person pays: $" + each.toFixed(2);
+    }
+  </script>
+
+</body>
+</html>
