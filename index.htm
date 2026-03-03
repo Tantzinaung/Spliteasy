@@ -19,14 +19,12 @@
       border-radius: 12px;
       box-shadow: 0 10px 25px rgba(0,0,0,0.2);
       text-align: center;
-      width: 300px;
+      width: 320px;
     }
 
-    h1 {
-      margin-bottom: 20px;
-    }
+    h1 { margin-bottom: 20px; }
 
-    input {
+    input, select {
       width: 100%;
       padding: 10px;
       margin: 8px 0;
@@ -45,14 +43,12 @@
       font-weight: bold;
     }
 
-    button:hover {
-      background: #45a049;
-    }
+    button:hover { background: #45a049; }
 
     #result {
       margin-top: 15px;
-      font-weight: bold;
-      color: #333;
+      text-align: left;
+      font-size: 14px;
     }
   </style>
 </head>
@@ -61,28 +57,53 @@
   <div class="card">
     <h1>SplitEasy</h1>
 
-    <input type="text" id="names" placeholder="Enter names (John, Mike)">
+    <input type="text" id="names" placeholder="Enter names (John, Mike, Anna)">
     <input type="number" id="amount" placeholder="Total amount">
 
-    <button onclick="splitExpense()">Split Equally</button>
+    <select id="payer">
+      <option value="">Select who paid</option>
+    </select>
+
+    <button onclick="splitExpense()">Calculate Split</button>
 
     <div id="result"></div>
   </div>
 
   <script>
-    function splitExpense() {
-      let names = document.getElementById("names").value.split(",");
-      let amount = parseFloat(document.getElementById("amount").value);
+    const namesInput = document.getElementById("names");
+    const payerSelect = document.getElementById("payer");
 
-      if (!amount || names.length === 0) {
+    namesInput.addEventListener("input", function() {
+      const names = namesInput.value.split(",").map(n => n.trim()).filter(n => n);
+      payerSelect.innerHTML = '<option value="">Select who paid</option>';
+      names.forEach(name => {
+        const option = document.createElement("option");
+        option.value = name;
+        option.textContent = name;
+        payerSelect.appendChild(option);
+      });
+    });
+
+    function splitExpense() {
+      const names = namesInput.value.split(",").map(n => n.trim()).filter(n => n);
+      const amount = parseFloat(document.getElementById("amount").value);
+      const payer = payerSelect.value;
+
+      if (!amount || names.length === 0 || !payer) {
         document.getElementById("result").innerHTML = "Please enter valid data.";
         return;
       }
 
-      let each = amount / names.length;
+      const each = amount / names.length;
+      let output = "";
 
-      document.getElementById("result").innerHTML =
-        "Each person pays: $" + each.toFixed(2);
+      names.forEach(name => {
+        if (name !== payer) {
+          output += `${name} owes ${payer} $${each.toFixed(2)}<br>`;
+        }
+      });
+
+      document.getElementById("result").innerHTML = output;
     }
   </script>
 
