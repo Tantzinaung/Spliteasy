@@ -1,111 +1,137 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="en">
 <head>
-  <title>SplitEasy</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: linear-gradient(135deg, #4CAF50, #2E8B57);
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-      margin: 0;
-    }
-
-    .card {
-      background: white;
-      padding: 30px;
-      border-radius: 12px;
-      box-shadow: 0 10px 25px rgba(0,0,0,0.2);
-      text-align: center;
-      width: 320px;
-    }
-
-    h1 { margin-bottom: 20px; }
-
-    input, select {
-      width: 100%;
-      padding: 10px;
-      margin: 8px 0;
-      border-radius: 6px;
-      border: 1px solid #ccc;
-    }
-
-    button {
-      width: 100%;
-      padding: 10px;
-      background: #4CAF50;
-      color: white;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      font-weight: bold;
-    }
-
-    button:hover { background: #45a049; }
-
-    #result {
-      margin-top: 15px;
-      text-align: left;
-      font-size: 14px;
-    }
-  </style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SplitEasy — International Expense Splitter</title>
+  <meta name="description" content="Split expenses with friends. Multi-expense, multi-currency, balances, and settlements." />
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">S</div>
+      <div>
+        <div class="brand-title">SplitEasy</div>
+        <div class="brand-sub">International Expense Splitter</div>
+      </div>
+    </div>
 
-  <div class="card">
-    <h1>SplitEasy</h1>
+    <div class="top-actions">
+      <select id="currency" class="select" title="Currency">
+        <option value="USD" selected>USD ($)</option>
+        <option value="SGD">SGD (S$)</option>
+        <option value="THB">THB (฿)</option>
+        <option value="EUR">EUR (€)</option>
+        <option value="GBP">GBP (£)</option>
+        <option value="JPY">JPY (¥)</option>
+      </select>
 
-    <input type="text" id="names" placeholder="Enter names (John, Mike, Anna)">
-    <input type="number" id="amount" placeholder="Total amount">
+      <button id="btnShare" class="btn btn-ghost" type="button">Share</button>
+      <button id="btnResetAll" class="btn btn-danger" type="button">Reset</button>
+    </div>
+  </header>
 
-    <select id="payer">
-      <option value="">Select who paid</option>
-    </select>
+  <main class="container">
+    <section class="grid">
+      <!-- LEFT: Setup + Add Expense -->
+      <div class="card">
+        <h2>Group</h2>
+        <p class="muted">Add members first. Then add expenses. Everything saves automatically.</p>
 
-    <button onclick="splitExpense()">Calculate Split</button>
+        <div class="row">
+          <input id="memberName" class="input" type="text" placeholder="Add member name (e.g., John)" maxlength="40" />
+          <button id="btnAddMember" class="btn" type="button">Add</button>
+        </div>
 
-    <div id="result"></div>
-  </div>
+        <div id="membersWrap" class="chips" aria-label="Members"></div>
 
-  <script>
-    const namesInput = document.getElementById("names");
-    const payerSelect = document.getElementById("payer");
+        <hr class="hr" />
 
-    namesInput.addEventListener("input", function() {
-      const names = namesInput.value.split(",").map(n => n.trim()).filter(n => n);
-      payerSelect.innerHTML = '<option value="">Select who paid</option>';
-      names.forEach(name => {
-        const option = document.createElement("option");
-        option.value = name;
-        option.textContent = name;
-        payerSelect.appendChild(option);
-      });
-    });
+        <h2>Add Expense</h2>
+        <div class="form">
+          <label class="label">Title</label>
+          <input id="expTitle" class="input" type="text" placeholder="Dinner, Taxi, Hotel..." maxlength="60" />
 
-    function splitExpense() {
-      const names = namesInput.value.split(",").map(n => n.trim()).filter(n => n);
-      const amount = parseFloat(document.getElementById("amount").value);
-      const payer = payerSelect.value;
+          <div class="row">
+            <div class="grow">
+              <label class="label">Amount</label>
+              <input id="expAmount" class="input" type="number" inputmode="decimal" placeholder="0.00" min="0" step="0.01" />
+            </div>
+            <div class="grow">
+              <label class="label">Paid by</label>
+              <select id="expPaidBy" class="select"></select>
+            </div>
+          </div>
 
-      if (!amount || names.length === 0 || !payer) {
-        document.getElementById("result").innerHTML = "Please enter valid data.";
-        return;
-      }
+          <div class="row">
+            <div class="grow">
+              <label class="label">Split type</label>
+              <select id="splitType" class="select">
+                <option value="equal" selected>Equal split</option>
+                <option value="custom">Custom shares</option>
+              </select>
+            </div>
+            <div class="grow">
+              <label class="label">Participants</label>
+              <button id="btnSelectAll" class="btn btn-ghost" type="button">Select all</button>
+            </div>
+          </div>
 
-      const each = amount / names.length;
-      let output = "";
+          <div id="participantsWrap" class="participants"></div>
 
-      names.forEach(name => {
-        if (name !== payer) {
-          output += `${name} owes ${payer} $${each.toFixed(2)}<br>`;
-        }
-      });
+          <div id="customSharesWrap" class="custom hidden">
+            <div class="note">
+              Custom shares: set how much each person should pay (must sum to total).
+            </div>
+            <div id="customShares" class="custom-grid"></div>
+          </div>
 
-      document.getElementById("result").innerHTML = output;
-    }
-  </script>
+          <div class="row">
+            <button id="btnAddExpense" class="btn btn-primary" type="button">Add expense</button>
+            <button id="btnClearExpense" class="btn btn-ghost" type="button">Clear</button>
+          </div>
 
+          <div id="msg" class="msg" role="status" aria-live="polite"></div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Expenses + Results -->
+      <div class="card">
+        <div class="card-header">
+          <h2>Expenses</h2>
+          <div class="tiny muted" id="autosaveStatus">Auto-saved</div>
+        </div>
+
+        <div id="expensesList" class="list"></div>
+
+        <hr class="hr" />
+
+        <h2>Balances</h2>
+        <p class="muted">Positive = should receive. Negative = owes.</p>
+        <div id="balances" class="list"></div>
+
+        <hr class="hr" />
+
+        <h2>Settle up</h2>
+        <p class="muted">Simplified transfers to settle debts.</p>
+        <div id="settlements" class="list"></div>
+
+        <div class="row">
+          <button id="btnExport" class="btn btn-ghost" type="button">Export</button>
+          <label class="btn btn-ghost file">
+            Import
+            <input id="fileImport" type="file" accept="application/json" />
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <span class="muted">SplitEasy v1 • LocalStorage • No login • Works on GitHub Pages</span>
+    </footer>
+  </main>
+
+  <script src="app.js"></script>
 </body>
 </html>
