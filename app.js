@@ -384,12 +384,17 @@ function getFilteredSortedExpenses(){
 }
 
 function openModal(dataUrl){
+  const modal = el("modal");
   el("modalImg").src = dataUrl;
-  el("modal").classList.remove("hidden");
+  modal.classList.remove("hidden");
+  // prevent background scrolling
+  document.body.style.overflow = "hidden";
 }
 function closeModal(){
-  el("modal").classList.add("hidden");
+  const modal = el("modal");
+  modal.classList.add("hidden");
   el("modalImg").src = "";
+  document.body.style.overflow = "";
 }
 
 function renderExpenses(){
@@ -619,8 +624,12 @@ function wire(){
 
   el("btnCloseModal").onclick = closeModal;
   el("modal").addEventListener("click", (e)=>{
-    if (e.target.id === "modal") closeModal();
-  });
+  if (e.target && e.target.id === "modal") closeModal();
+});;
+}
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeModal();
+});
 }
 
 async function fileToDataUrl(file){
