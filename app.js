@@ -105,6 +105,12 @@ function setReceiptPreview(dataUrl) {
 }
 
 function openModal(dataUrl) {
+  // guard: only open if valid image data
+  if (!dataUrl || typeof dataUrl !== "string" || !dataUrl.startsWith("data:image")) {
+    setMsg("No receipt photo found for this expense.", "err");
+    return;
+  }
+
   const modal = el("modal");
   const img = el("modalImg");
   if (!modal || !img) return;
