@@ -6,6 +6,15 @@
   <title>SplitEasy — International Expense Splitter</title>
   <meta name="description" content="Split expenses with friends. Multi-expense, multi-currency, balances, receipts, and history." />
   <link rel="stylesheet" href="style.css" />
+  /* --- MODAL CLICK FIX --- */
+#modal { z-index: 9999; }
+#modal * { pointer-events: auto; }
+
+#btnCloseModal {
+  position: relative;
+  z-index: 10000;
+  pointer-events: auto;
+}
 </head>
 <body>
   <header class="topbar">
