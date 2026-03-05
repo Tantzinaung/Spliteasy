@@ -248,15 +248,46 @@ body.dark .checkWrap, body.dark .qrWrap{ background:#0f1420; }
 /* Mobile touch-friendly */
 @media (max-width: 600px){
   .container{ padding:12px; }
-  .toolbar{
-    width:100%;
+
+  .topbar{
+    flex-direction: column;
+    align-items: stretch;
+    gap:10px;
+  }
+
+  .brand{
     justify-content:flex-start;
   }
-  .toolbar select, .toolbar button, .toolbar .fileBtn{
+
+  /* subtitle ကို mobile မှာ ဖျောက် (နေရာချွေတာ) */
+  .brandSub{ display:none; }
+
+  /* toolbar ကို grid လုပ် */
+  .toolbar{
     width:100%;
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap:8px;
+    justify-content:stretch;
   }
-  .brandText .brandTitle{ font-size:16px; }
-  input, select{ padding:14px; }
-  .btn{ padding:12px; font-size:16px; }
+
+  /* dropdown + New Trip ကို full width */
+  #groupSelector{ grid-column: 1 / -1; }
+  #btnNewTrip{ grid-column: 1 / -1; }
+  #baseCurrency{ grid-column: 1 / -1; }
+
+  /* buttons */
+  .btn, .fileBtn{
+    width:100%;
+    padding:12px;
+    font-size:16px;
+  }
+
+  input, select{
+    padding:14px;
+    font-size:16px;
+  }
+
+  .grid{ grid-template-columns: 1fr; }
   .galleryGrid{ grid-template-columns: repeat(2, 1fr); }
 }
