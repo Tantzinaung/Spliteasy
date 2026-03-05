@@ -1,259 +1,211 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>SplitEasy — International Expense Splitter</title>
+  <link rel="stylesheet" href="style.css"/>
 
-<title>SplitEasy</title>
-
-<link rel="stylesheet" href="style.css">
-
-<style>
-
-/* --- MODAL FIX --- */
-
-#modal{
-  position: fixed;
-  inset:0;
-  background: rgba(0,0,0,0.45);
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  z-index:9999;
-}
-
-#modal.hidden{
-  display:none;
-}
-
-.modal-card{
-  background:white;
-  padding:20px;
-  border-radius:12px;
-  max-width:600px;
-  width:90%;
-}
-
-#btnCloseModal{
-  cursor:pointer;
-  position:relative;
-  z-index:10000;
-}
-
-</style>
-
+  <!-- QR Code library (CDN) -->
+  <script defer src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <script defer src="app.js"></script>
 </head>
 
-
 <body>
-
-<header class="topbar">
-
-<div class="brand">
-<div class="logo">S</div>
-
-<div>
-<div class="brand-title">SplitEasy</div>
-<div class="brand-sub">International Expense Splitter</div>
-</div>
-
-</div>
-
-
-<div class="toolbar">
-
-<select id="currency" class="input">
-<option value="USD">USD ($)</option>
-<option value="SGD">SGD ($)</option>
-<option value="MMK">MMK (Ks)</option>
-<option value="THB">THB (฿)</option>
-</select>
-
-<button id="btnShare" class="btn">Share</button>
-
-<button id="btnResetAll" class="btn btn-danger">Reset</button>
-
-</div>
-
-</header>
-
-
-<div class="container">
-
-
-<!-- LEFT SIDE -->
-
-<div class="card">
-
-<h2>Group</h2>
-
-<p class="sub">Add members first. Then add expenses.</p>
-
-<div class="row">
-
-<input id="memberName" class="input" placeholder="Add member name">
-
-<button id="btnAddMember" class="btn">Add</button>
-
-</div>
-
-<div id="membersWrap" class="members"></div>
-
-
-
-<hr>
-
-
-
-<h2>Add Expense</h2>
-
-
-<label class="label">Title</label>
-
-<input id="expTitle" class="input" placeholder="Dinner, Taxi, Hotel...">
-
-
-<label class="label">Date & time</label>
-
-<input id="expDateTime" type="datetime-local" class="input">
-
-
-<label class="label">Amount</label>
-
-<input id="expAmount" type="number" class="input">
-
-
-<label class="label">Paid by</label>
-
-<select id="expPaidBy" class="input"></select>
-
-
-<label class="label">Split type</label>
-
-<select id="splitType" class="input">
-
-<option value="equal">Equal split</option>
-
-<option value="custom">Custom</option>
-
-</select>
-
-
-
-<div id="participantsWrap" class="participants"></div>
-
-<button id="btnSelectAll" class="btn btn-small">Select all</button>
-
-
-
-<div id="customSharesWrap" class="hidden">
-
-<h4>Custom shares</h4>
-
-<div id="customShares"></div>
-
-</div>
-
-
-
-<label class="label">Receipt photo</label>
-
-<input type="file" id="expReceipt" accept="image/*" class="input">
-
-<div id="receiptPreview" class="hidden">
-
-<img id="receiptImg" width="120">
-
-<button id="btnClearReceipt" class="btn btn-small">Remove</button>
-
-</div>
-
-
-
-<div class="row">
-
-<button id="btnAddExpense" class="btn btn-primary">Add expense</button>
-
-<button id="btnClearExpense" class="btn">Clear</button>
-
-</div>
-
-
-<div id="msg" class="msg"></div>
-
-</div>
-
-
-
-
-<!-- RIGHT SIDE -->
-
-
-<div class="card">
-
-<h2>Expenses (History)</h2>
-
-<div class="row">
-
-<select id="sortBy" class="input">
-
-<option value="newest">Newest</option>
-
-<option value="oldest">Oldest</option>
-
-<option value="amountDesc">Amount high</option>
-
-<option value="amountAsc">Amount low</option>
-
-</select>
-
-<input id="search" class="input" placeholder="Search">
-
-</div>
-
-
-<div id="expensesList"></div>
-
-
-<h2>Balances</h2>
-
-<div id="balances"></div>
-
-
-<h2>Settle up</h2>
-
-<div id="settlements"></div>
-
-</div>
-
-
-</div>
-
-
-
-<!-- RECEIPT MODAL -->
-
-<div id="modal" class="hidden">
-
-<div class="modal-card">
-
-<div class="row">
-
-<h3>Receipt</h3>
-
-<button id="btnCloseModal" class="btn">Close</button>
-
-</div>
-
-<img id="modalImg" width="100%">
-
-</div>
-
-</div>
-
-
-
-<script src="app.js"></script>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">S</div>
+      <div class="brandText">
+        <div class="brandTitle">SplitEasy</div>
+        <div class="brandSub">International Expense Splitter</div>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <select id="groupSelector" title="Select trip"></select>
+      <button id="btnNewTrip" class="btn">+ New Trip</button>
+
+      <select id="baseCurrency" title="Trip currency">
+        <!-- Filled by JS -->
+      </select>
+
+      <button id="btnDark" class="btn">🌙 Dark</button>
+
+      <button id="btnShare" class="btn">Share</button>
+      <button id="btnExport" class="btn">Export</button>
+
+      <label class="btn fileBtn">
+        Import
+        <input id="importFile" type="file" accept="application/json" hidden/>
+      </label>
+
+      <button id="btnReset" class="btn danger">Reset</button>
+    </div>
+  </header>
+
+  <main class="container">
+
+    <section class="grid">
+
+      <div class="card">
+        <h2>Trip</h2>
+        <p class="muted">Create trips (Trip 1, Trip 2...). Add members. Add expenses. Auto saves locally.</p>
+
+        <div class="row">
+          <input id="tripNameInput" type="text" placeholder="Rename current trip (optional)"/>
+          <button id="btnRenameTrip" class="btn">Rename</button>
+        </div>
+
+        <hr/>
+
+        <h3>Group</h3>
+        <div class="row">
+          <input id="memberName" type="text" placeholder="Add member name (e.g., John)"/>
+          <button id="btnAddMember" class="btn">Add</button>
+        </div>
+
+        <div id="membersWrap" class="pillWrap"></div>
+
+        <hr/>
+
+        <h3>Add Expense</h3>
+
+        <div class="field">
+          <label>Title</label>
+          <input id="expTitle" type="text" placeholder="Dinner, Taxi, Hotel..."/>
+        </div>
+
+        <div class="row">
+          <div class="field grow">
+            <label>Date & time</label>
+            <input id="expDate" type="datetime-local"/>
+            <div class="hint">Tip: default = now. You can edit it.</div>
+          </div>
+
+          <div class="field grow">
+            <label>Paid by</label>
+            <select id="paidBy"></select>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field grow">
+            <label>Amount</label>
+            <input id="expAmount" type="number" inputmode="decimal" step="0.01" placeholder="0.00"/>
+          </div>
+
+          <div class="field grow">
+            <label>Currency</label>
+            <select id="expCurrency"></select>
+            <div class="hint">Will auto-convert to trip currency.</div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Participants</label>
+          <div class="row tight">
+            <button id="btnSelectAll" class="btn small">Select all</button>
+            <button id="btnSelectNone" class="btn small">None</button>
+          </div>
+          <div id="participantsWrap" class="checkWrap"></div>
+        </div>
+
+        <div class="field">
+          <label>Receipt (optional)</label>
+          <input id="receiptFile" type="file" accept="image/*" capture="environment"/>
+          <div class="hint">Mobile: you can take a photo as receipt.</div>
+        </div>
+
+        <div class="row">
+          <button id="btnAddExpense" class="btn primary">Add expense</button>
+          <button id="btnClearExpense" class="btn">Clear</button>
+          <button id="btnOpenGallery" class="btn">Receipt Gallery</button>
+        </div>
+
+        <div id="formMode" class="muted small"></div>
+      </div>
+
+      <div class="card">
+        <div class="cardHeader">
+          <h2>Expenses (History)</h2>
+          <div class="muted small">Auto-saved</div>
+        </div>
+
+        <div class="row">
+          <select id="sortExpenses">
+            <option value="newest">Newest</option>
+            <option value="oldest">Oldest</option>
+            <option value="amountDesc">Amount (high → low)</option>
+            <option value="amountAsc">Amount (low → high)</option>
+            <option value="titleAsc">Title (A → Z)</option>
+          </select>
+          <input id="searchExpenses" type="text" placeholder="Search title / payer / currency..."/>
+        </div>
+
+        <div id="expensesList" class="list"></div>
+      </div>
+
+      <div class="card">
+        <h2>Balances</h2>
+        <p class="muted">Positive = should receive. Negative = owes.</p>
+        <div id="balancesList" class="list"></div>
+
+        <hr/>
+
+        <h2>Settle up</h2>
+        <p class="muted">Simplified transfers to settle debts.</p>
+        <div id="settleList" class="list"></div>
+
+        <hr/>
+
+        <h2>Tools</h2>
+        <div class="row">
+          <button id="btnCopyLink" class="btn">Copy link</button>
+          <button id="btnShowQR" class="btn">QR code</button>
+        </div>
+        <div id="qrWrap" class="qrWrap hidden">
+          <div class="row between">
+            <div class="muted">Scan to open SplitEasy</div>
+            <button id="btnCloseQR" class="btn small">Close</button>
+          </div>
+          <div id="qrBox" class="qrBox"></div>
+        </div>
+      </div>
+
+    </section>
+  </main>
+
+  <!-- Share Modal -->
+  <div id="shareModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modalBox">
+      <div class="row between">
+        <h3>Share</h3>
+        <button id="btnCloseShare" class="btn small">Close</button>
+      </div>
+      <p class="muted">Share this app link with friends.</p>
+      <div class="row">
+        <input id="shareLink" type="text" readonly/>
+        <button id="btnCopyShare" class="btn">Copy</button>
+      </div>
+      <div class="row">
+        <button id="btnNativeShare" class="btn primary">Share (Phone)</button>
+        <button id="btnQRShare" class="btn">QR code</button>
+      </div>
+      <div id="qrShareBox" class="qrBox"></div>
+    </div>
+  </div>
+
+  <!-- Gallery Modal -->
+  <div id="galleryModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modalBox big">
+      <div class="row between">
+        <h3>Receipt Gallery</h3>
+        <button id="btnCloseGallery" class="btn small">Close</button>
+      </div>
+      <div id="galleryGrid" class="galleryGrid"></div>
+      <div class="muted small">Tip: Click an image to open full size.</div>
+    </div>
+  </div>
 
 </body>
 </html>
