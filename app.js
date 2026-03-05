@@ -1,710 +1,907 @@
-/* SplitEasy v1.1 (Fixed)
-   - Date & Time per expense (history)
-   - Search + Sort
-   - Multi-currency incl. MMK
-   - Receipt photo (camera/file) stored as DataURL (localStorage)
-   - Modal close bug FIXED (Close button / ESC / background click)
+/* SplitEasy v2 — Multi Trip + Export/Import + Dark + Share/QR + Edit/Delete + Receipt Gallery + Currency Convert
+   Works on GitHub Pages (localStorage based)
 */
 
-const STORAGE_KEY = "spliteasy_v11";
+const STORAGE_KEY = "spliteasy_v2_db";
+const FX_CACHE_KEY = "spliteasy_v2_fx_cache";
+const FX_CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12h
 
-const el = (id) => document.getElementById(id);
+// Common currencies (includes MMK)
+const CURRENCIES = [
+  "USD","SGD","MMK","THB","EUR","GBP","JPY","AUD","CAD","CNY","HKD","INR","IDR","MYR","PHP","KRW","VND","LAK","KHR"
+];
 
-const state = {
-  currency: "USD",
-  members: [],
-  expenses: []
-  // expense: {id, title, amount, paidBy, splitType, participants[], shares{}, dateTimeISO, receiptDataUrl?}
-};
+// ---------- Helpers ----------
+const $ = (id) => document.getElementById(id);
 
-function uid() {
-  return Math.random().toString(16).slice(2) + Date.now().toString(16);
-}
-
-function fmtMoney(amount) {
-  try {
-    return new Intl.NumberFormat(undefined, { style: "currency", currency: state.currency }).format(amount);
-  } catch {
-    const sym = state.currency === "MMK" ? "Ks " : state.currency + " ";
-    return `${sym}${Number(amount).toFixed(2)}`;
-  }
-}
-
-function fmtDateTime(iso) {
-  if (!iso) return "-";
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return iso;
-  return d.toLocaleString();
-}
-
-function setMsg(text, kind = "ok") {
-  const m = el("msg");
-  if (!m) return;
-  m.textContent = text || "";
-  m.className = "msg " + (kind === "err" ? "err" : "ok");
-  if (!text) m.className = "msg";
-}
-
-function save() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  const s = el("autosaveStatus");
-  if (s) s.textContent = "Auto-saved";
-}
-
-function load() {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) return;
-  try {
-    const data = JSON.parse(raw);
-    if (data && Array.isArray(data.members) && Array.isArray(data.expenses)) {
-      state.currency = data.currency || "USD";
-      state.members = data.members;
-      state.expenses = data.expenses;
-    }
-  } catch {}
-}
-
-function round2(n) {
-  return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-}
-
-function escapeHtml(str) {
-  return String(str).replace(/[&<>"']/g, (s) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[s]));
-}
-function escapeAttr(str) {
-  return escapeHtml(str).replace(/"/g, "&quot;");
-}
-
-function toLocalDateTimeValue(date) {
-  const pad = (n) => String(n).padStart(2, "0");
-  const yyyy = date.getFullYear();
-  const mm = pad(date.getMonth() + 1);
-  const dd = pad(date.getDate());
-  const hh = pad(date.getHours());
-  const mi = pad(date.getMinutes());
+function nowLocalInputValue(){
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2,"0");
+  const yyyy = d.getFullYear();
+  const mm = pad(d.getMonth()+1);
+  const dd = pad(d.getDate());
+  const hh = pad(d.getHours());
+  const mi = pad(d.getMinutes());
   return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
 }
 
-/* ----------------- Receipt / Modal ----------------- */
+function uid(prefix="id"){
+  return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
 
-let receiptDataUrl = null;
+function money(n){
+  if (!Number.isFinite(n)) return "0.00";
+  return n.toFixed(2);
+}
 
-function setReceiptPreview(dataUrl) {
-  receiptDataUrl = dataUrl;
-  const box = el("receiptPreview");
-  const img = el("receiptImg");
-  if (!box || !img) return;
+function safeText(s){
+  return (s ?? "").toString().trim();
+}
 
-  if (!dataUrl) {
-    box.classList.add("hidden");
-    img.src = "";
-    return;
+function downloadText(filename, text, mime="application/json"){
+  const blob = new Blob([text], {type:mime});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function readFileAsDataURL(file){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("File read error"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function readFileAsText(file){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("File read error"));
+    reader.readAsText(file);
+  });
+}
+
+// ---------- DB ----------
+let DB = loadDB();
+let editExpenseId = null;
+
+function defaultDB(){
+  const first = {
+    id: uid("trip"),
+    name: "Trip 1",
+    baseCurrency: "USD",
+    members: [],
+    expenses: []
+  };
+  return {
+    version: 2,
+    groups: [first],
+    currentGroupId: first.id
+  };
+}
+
+function loadDB(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return defaultDB();
+    const db = JSON.parse(raw);
+
+    // minimal migration safety
+    if (!db.groups || !Array.isArray(db.groups) || db.groups.length === 0){
+      return defaultDB();
+    }
+    if (!db.currentGroupId) db.currentGroupId = db.groups[0].id;
+    db.version = 2;
+    // ensure fields
+    db.groups.forEach(g=>{
+      g.baseCurrency ||= "USD";
+      g.members ||= [];
+      g.expenses ||= [];
+    });
+    return db;
+  }catch{
+    return defaultDB();
   }
-  img.src = dataUrl;
-  box.classList.remove("hidden");
 }
 
-function openModal(dataUrl) {
-  // guard: only open if valid image data
-  if (!dataUrl || typeof dataUrl !== "string" || !dataUrl.startsWith("data:image")) {
-    setMsg("No receipt photo found for this expense.", "err");
-    return;
+function saveDB(){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(DB));
+}
+
+function getGroup(){
+  return DB.groups.find(g => g.id === DB.currentGroupId) || DB.groups[0];
+}
+
+function setCurrentGroup(id){
+  DB.currentGroupId = id;
+  saveDB();
+  editExpenseId = null;
+  clearExpenseForm(true);
+  renderAll();
+}
+
+// ---------- FX (Currency Convert) ----------
+function loadFxCache(){
+  try{
+    const raw = localStorage.getItem(FX_CACHE_KEY);
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    if (!obj || !obj.ts || !obj.rates || !obj.base) return null;
+    if (Date.now() - obj.ts > FX_CACHE_TTL_MS) return null;
+    return obj;
+  }catch{
+    return null;
   }
-
-  const modal = el("modal");
-  const img = el("modalImg");
-  if (!modal || !img) return;
-
-  img.src = dataUrl;
-  modal.classList.remove("hidden");
-  document.body.style.overflow = "hidden";
+}
+function saveFxCache(base, rates){
+  localStorage.setItem(FX_CACHE_KEY, JSON.stringify({ts:Date.now(), base, rates}));
 }
 
-function closeModal() {
-  const modal = el("modal");
-  const img = el("modalImg");
-  if (!modal || !img) return;
+/* Uses exchangerate.host (no key normally). If it fails, fallback to 1:1 (still works offline) */
+async function getRates(base){
+  base = (base || "USD").toUpperCase();
+  const cache = loadFxCache();
+  if (cache && cache.base === base) return cache.rates;
 
-  modal.classList.add("hidden");
-  img.src = "";
-  document.body.style.overflow = "";
+  try{
+    const url = `https://api.exchangerate.host/latest?base=${encodeURIComponent(base)}`;
+    const res = await fetch(url, {cache:"no-store"});
+    if (!res.ok) throw new Error("FX fetch failed");
+    const data = await res.json();
+    if (!data || !data.rates) throw new Error("FX data invalid");
+    saveFxCache(base, data.rates);
+    return data.rates;
+  }catch{
+    // fallback
+    const rates = {};
+    CURRENCIES.forEach(c => rates[c] = 1);
+    saveFxCache(base, rates);
+    return rates;
+  }
 }
 
-/* ----------------- UI Render ----------------- */
+async function convert(amount, from, to){
+  amount = Number(amount);
+  if (!Number.isFinite(amount)) return 0;
+  from = (from||"USD").toUpperCase();
+  to = (to||"USD").toUpperCase();
+  if (from === to) return amount;
 
-function renderMembers() {
-  const wrap = el("membersWrap");
-  if (!wrap) return;
-  wrap.innerHTML = "";
+  // Convert using base=from rates(to)
+  const rates = await getRates(from);
+  const rate = rates[to];
+  if (!rate || !Number.isFinite(rate)) return amount; // fallback
+  return amount * rate;
+}
 
-  state.members.forEach((name) => {
-    const chip = document.createElement("div");
-    chip.className = "chip";
-    chip.innerHTML = `<span>${escapeHtml(name)}</span>`;
+// ---------- Rendering ----------
+function renderGroups(){
+  const sel = $("groupSelector");
+  sel.innerHTML = "";
 
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.textContent = "×";
-    btn.title = "Remove";
-    btn.onclick = () => removeMember(name);
-
-    chip.appendChild(btn);
-    wrap.appendChild(chip);
+  DB.groups.forEach(g=>{
+    const opt = document.createElement("option");
+    opt.value = g.id;
+    opt.textContent = g.name;
+    sel.appendChild(opt);
   });
 
-  const payer = el("expPaidBy");
-  if (payer) {
-    payer.innerHTML = "";
-    const opt0 = document.createElement("option");
-    opt0.value = "";
-    opt0.textContent = "Select";
-    payer.appendChild(opt0);
-
-    state.members.forEach((m) => {
-      const o = document.createElement("option");
-      o.value = m;
-      o.textContent = m;
-      payer.appendChild(o);
-    });
-  }
-
-  renderParticipants();
-  renderCustomShares();
+  sel.value = getGroup().id;
 }
 
-function renderParticipants() {
-  const wrap = el("participantsWrap");
-  if (!wrap) return;
+function renderCurrencies(){
+  const base = $("baseCurrency");
+  const exp = $("expCurrency");
+
+  // fill base currency
+  base.innerHTML = "";
+  CURRENCIES.forEach(c=>{
+    const o = document.createElement("option");
+    o.value = c; o.textContent = c;
+    base.appendChild(o);
+  });
+
+  // expense currency
+  exp.innerHTML = "";
+  CURRENCIES.forEach(c=>{
+    const o = document.createElement("option");
+    o.value = c; o.textContent = c;
+    exp.appendChild(o);
+  });
+
+  // set selected
+  const g = getGroup();
+  base.value = g.baseCurrency || "USD";
+  exp.value = g.baseCurrency || "USD";
+}
+
+function renderMembers(){
+  const g = getGroup();
+  const wrap = $("membersWrap");
   wrap.innerHTML = "";
 
-  state.members.forEach((m) => {
-    const pill = document.createElement("label");
-    pill.className = "pill active";
-    pill.innerHTML = `<input type="checkbox" checked data-name="${escapeAttr(m)}" /> <span>${escapeHtml(m)}</span>`;
-
-    const checkbox = pill.querySelector("input");
-    checkbox.addEventListener("change", () => {
-      pill.classList.toggle("active", checkbox.checked);
-      if (el("splitType")?.value === "custom") renderCustomShares();
-    });
-
+  g.members.forEach(name=>{
+    const pill = document.createElement("div");
+    pill.className = "pill";
+    pill.innerHTML = `<span>${name}</span>`;
+    const x = document.createElement("button");
+    x.className = "x";
+    x.type = "button";
+    x.textContent = "×";
+    x.onclick = () => removeMember(name);
+    pill.appendChild(x);
     wrap.appendChild(pill);
   });
-}
 
-function getSelectedParticipants() {
-  const wrap = el("participantsWrap");
-  if (!wrap) return [];
-  const checks = Array.from(wrap.querySelectorAll("input[type=checkbox]"));
-  return checks.filter((c) => c.checked).map((c) => c.getAttribute("data-name"));
-}
+  // paidBy select
+  const paidBy = $("paidBy");
+  paidBy.innerHTML = `<option value="">Select</option>`;
+  g.members.forEach(m=>{
+    const o = document.createElement("option");
+    o.value = m; o.textContent = m;
+    paidBy.appendChild(o);
+  });
 
-function renderCustomShares() {
-  const wrap = el("customShares");
-  if (!wrap) return;
-  wrap.innerHTML = "";
-
-  const people = getSelectedParticipants();
-  people.forEach((p) => {
-    const box = document.createElement("div");
-    box.innerHTML = `
-      <label class="label">${escapeHtml(p)} pays</label>
-      <input class="input" type="number" step="0.01" min="0" data-share="${escapeAttr(p)}" placeholder="0.00" />
-    `;
-    wrap.appendChild(box);
+  // participants checkboxes
+  const pWrap = $("participantsWrap");
+  pWrap.innerHTML = "";
+  g.members.forEach(m=>{
+    const label = document.createElement("label");
+    label.className = "check";
+    label.innerHTML = `<input type="checkbox" value="${m}" checked/> <span>${m}</span>`;
+    pWrap.appendChild(label);
   });
 }
 
-/* ----------------- Actions ----------------- */
-
-function addMember() {
-  const input = el("memberName");
-  const name = (input?.value || "").trim();
-  if (!name) return setMsg("Please enter a name.", "err");
-  if (state.members.includes(name)) return setMsg("Member already exists.", "err");
-  if (state.members.length >= 30) return setMsg("Max 30 members for v1.", "err");
-
-  state.members.push(name);
-  if (input) input.value = "";
-  setMsg("Member added ✅");
-  renderAll();
-  save();
+function getSelectedParticipants(){
+  const boxes = Array.from($("participantsWrap").querySelectorAll('input[type="checkbox"]'));
+  return boxes.filter(b=>b.checked).map(b=>b.value);
 }
 
-function removeMember(name) {
-  const used = state.expenses.some((e) => e.paidBy === name || e.participants.includes(name));
-  if (used) return setMsg("Cannot remove: member is used in expenses. Delete those expenses first.", "err");
+function renderExpenses(){
+  const g = getGroup();
+  const list = $("expensesList");
 
-  state.members = state.members.filter((m) => m !== name);
-  setMsg("Member removed.");
-  renderAll();
-  save();
-}
+  const q = safeText($("searchExpenses").value).toLowerCase();
+  const sort = $("sortExpenses").value;
 
-function clearExpenseForm() {
-  if (el("expTitle")) el("expTitle").value = "";
-  if (el("expAmount")) el("expAmount").value = "";
-  if (el("expPaidBy")) el("expPaidBy").value = "";
-  if (el("splitType")) el("splitType").value = "equal";
+  let exps = [...g.expenses];
 
-  // default datetime = now
-  if (el("expDateTime")) el("expDateTime").value = toLocalDateTimeValue(new Date());
-
-  // participants select all
-  const pWrap = el("participantsWrap");
-  if (pWrap) {
-    Array.from(pWrap.querySelectorAll("input[type=checkbox]")).forEach((c) => (c.checked = true));
-    Array.from(pWrap.querySelectorAll(".pill")).forEach((p) => p.classList.add("active"));
+  // search
+  if (q){
+    exps = exps.filter(e=>{
+      const hay = `${e.title} ${e.paidBy} ${e.currency} ${e.baseCurrency}`.toLowerCase();
+      return hay.includes(q);
+    });
   }
 
-  // custom wrap hide
-  el("customSharesWrap")?.classList.add("hidden");
-  renderCustomShares();
-
-  // receipt clear
-  const file = el("expReceipt");
-  if (file) file.value = "";
-  setReceiptPreview(null);
-
-  setMsg("");
-}
-
-function addExpense() {
-  if (state.members.length < 2) return setMsg("Add at least 2 members first.", "err");
-
-  const title = (el("expTitle")?.value || "").trim() || "Expense";
-  const amount = Number(el("expAmount")?.value);
-  const paidBy = el("expPaidBy")?.value || "";
-  const splitType = el("splitType")?.value || "equal";
-  const participants = getSelectedParticipants();
-
-  const dtLocal = el("expDateTime")?.value || "";
-  const dateTimeISO = dtLocal ? new Date(dtLocal).toISOString() : new Date().toISOString();
-
-  if (!amount || amount <= 0) return setMsg("Enter a valid amount.", "err");
-  if (!paidBy) return setMsg("Select who paid.", "err");
-  if (participants.length < 1) return setMsg("Select at least 1 participant.", "err");
-
-  let shares = {};
-
-  if (splitType === "equal") {
-    const each = amount / participants.length;
-    participants.forEach((p) => (shares[p] = round2(each)));
-  } else {
-    const inputs = Array.from(el("customShares")?.querySelectorAll("input[data-share]") || []);
-    let sum = 0;
-
-    for (const inp of inputs) {
-      const who = inp.getAttribute("data-share");
-      const val = Number(inp.value);
-      if (!isFinite(val) || val < 0) return setMsg("Custom shares must be valid numbers.", "err");
-      shares[who] = round2(val);
-      sum += val;
-    }
-
-    sum = round2(sum);
-    const target = round2(amount);
-    if (sum !== target) {
-      return setMsg(`Custom shares must sum to total. Now: ${fmtMoney(sum)} / Total: ${fmtMoney(target)}`, "err");
-    }
-  }
-
-  state.expenses.unshift({
-    id: uid(),
-    title,
-    amount: round2(amount),
-    paidBy,
-    splitType,
-    participants,
-    shares,
-    dateTimeISO,
-    receiptDataUrl: receiptDataUrl || null
+  // sort
+  exps.sort((a,b)=>{
+    if (sort === "newest") return (b.dateTs||0) - (a.dateTs||0);
+    if (sort === "oldest") return (a.dateTs||0) - (b.dateTs||0);
+    if (sort === "amountDesc") return (b.baseAmount||0) - (a.baseAmount||0);
+    if (sort === "amountAsc") return (a.baseAmount||0) - (b.baseAmount||0);
+    if (sort === "titleAsc") return (a.title||"").localeCompare(b.title||"");
+    return 0;
   });
 
-  setMsg("Expense added ✅");
-  clearExpenseForm();
-  renderAll();
-  save();
-}
-
-function deleteExpense(id) {
-  state.expenses = state.expenses.filter((e) => e.id !== id);
-  setMsg("Expense deleted.");
-  renderAll();
-  save();
-}
-
-function editExpense(id) {
-  const e = state.expenses.find((x) => x.id === id);
-  if (!e) return;
-
-  if (el("expTitle")) el("expTitle").value = e.title;
-  if (el("expAmount")) el("expAmount").value = e.amount;
-  if (el("expPaidBy")) el("expPaidBy").value = e.paidBy;
-  if (el("splitType")) el("splitType").value = e.splitType;
-
-  const d = new Date(e.dateTimeISO || Date.now());
-  if (el("expDateTime")) el("expDateTime").value = toLocalDateTimeValue(d);
-
-  // participants
-  const pWrap = el("participantsWrap");
-  if (pWrap) {
-    Array.from(pWrap.querySelectorAll("input[type=checkbox]")).forEach((c) => {
-      const n = c.getAttribute("data-name");
-      c.checked = e.participants.includes(n);
-      c.closest(".pill")?.classList.toggle("active", c.checked);
-    });
-  }
-
-  if (e.splitType === "custom") {
-    el("customSharesWrap")?.classList.remove("hidden");
-    renderCustomShares();
-    Array.from(el("customShares")?.querySelectorAll("input[data-share]") || []).forEach((inp) => {
-      const who = inp.getAttribute("data-share");
-      inp.value = e.shares[who] ?? 0;
-    });
-  } else {
-    el("customSharesWrap")?.classList.add("hidden");
-  }
-
-  // receipt
-  setReceiptPreview(e.receiptDataUrl || null);
-
-  // remove old expense, then user will re-add
-  deleteExpense(id);
-  setMsg('Editing loaded. Update fields then click "Add expense".', "ok");
-}
-
-/* ----------------- Calculations ----------------- */
-
-function computeBalances() {
-  const balances = {};
-  state.members.forEach((m) => (balances[m] = 0));
-
-  for (const e of state.expenses) {
-    balances[e.paidBy] = (balances[e.paidBy] || 0) + e.amount;
-    for (const p of Object.keys(e.shares)) {
-      balances[p] = (balances[p] || 0) - e.shares[p];
-    }
-  }
-
-  for (const k of Object.keys(balances)) balances[k] = round2(balances[k]);
-  return balances;
-}
-
-function computeSettlements(balances) {
-  const creditors = [];
-  const debtors = [];
-
-  for (const [name, bal] of Object.entries(balances)) {
-    if (bal > 0) creditors.push({ name, bal });
-    else if (bal < 0) debtors.push({ name, bal: -bal });
-  }
-
-  creditors.sort((a, b) => b.bal - a.bal);
-  debtors.sort((a, b) => b.bal - a.bal);
-
-  const transfers = [];
-  let i = 0,
-    j = 0;
-
-  while (i < debtors.length && j < creditors.length) {
-    const d = debtors[i];
-    const c = creditors[j];
-    const pay = Math.min(d.bal, c.bal);
-
-    if (pay > 0.009) {
-      transfers.push({ from: d.name, to: c.name, amount: round2(pay) });
-      d.bal = round2(d.bal - pay);
-      c.bal = round2(c.bal - pay);
-    }
-    if (d.bal <= 0.009) i++;
-    if (c.bal <= 0.009) j++;
-  }
-
-  return transfers;
-}
-
-function getFilteredSortedExpenses() {
-  const q = (el("search")?.value || "").trim().toLowerCase();
-  let items = state.expenses.slice();
-
-  if (q) items = items.filter((e) => (e.title || "").toLowerCase().includes(q));
-
-  const sortBy = el("sortBy")?.value || "newest";
-  if (sortBy === "newest") items.sort((a, b) => (b.dateTimeISO || "").localeCompare(a.dateTimeISO || ""));
-  if (sortBy === "oldest") items.sort((a, b) => (a.dateTimeISO || "").localeCompare(b.dateTimeISO || ""));
-  if (sortBy === "amountDesc") items.sort((a, b) => (b.amount || 0) - (a.amount || 0));
-  if (sortBy === "amountAsc") items.sort((a, b) => (a.amount || 0) - (b.amount || 0));
-
-  return items;
-}
-
-/* ----------------- Render right side ----------------- */
-
-function renderExpenses() {
-  const list = el("expensesList");
-  if (!list) return;
-  list.innerHTML = "";
-
-  const items = getFilteredSortedExpenses();
-  if (items.length === 0) {
-    list.innerHTML = `<div class="item"><div class="meta">No expenses yet.</div></div>`;
+  if (exps.length === 0){
+    list.innerHTML = `<div class="item muted">No expenses yet.</div>`;
     return;
   }
 
-  items.forEach((e) => {
+  list.innerHTML = "";
+  exps.forEach(e=>{
     const item = document.createElement("div");
     item.className = "item";
 
-    const participantsText = e.participants.join(", ");
-    const badge = e.splitType === "custom" ? "Custom" : "Equal";
-    const dt = fmtDateTime(e.dateTimeISO);
-    const hasReceipt = !!e.receiptDataUrl;
+    const dt = e.dateISO ? new Date(e.dateISO) : null;
+    const dateText = dt ? dt.toLocaleString() : "";
+
+    const receiptTag = e.receipt ? `<span class="tag">Receipt</span>` : "";
+    const fxTag = (e.currency !== e.baseCurrency) ? `<span class="tag">${e.currency}→${e.baseCurrency}</span>` : "";
 
     item.innerHTML = `
-      <div class="title">${escapeHtml(e.title)} <span class="badge">${badge}</span></div>
-      <div class="meta">
-        Date: <b>${escapeHtml(dt)}</b><br/>
-        Amount: <b>${fmtMoney(e.amount)}</b> • Paid by: <b>${escapeHtml(e.paidBy)}</b><br/>
-        Participants: ${escapeHtml(participantsText)}
-      </div>
-      <div class="actions">
-        <button class="btn btn-ghost" type="button" data-edit="${e.id}">Edit</button>
-        <button class="btn btn-danger" type="button" data-del="${e.id}">Delete</button>
-        ${hasReceipt ? `<button class="btn btn-ghost" type="button" data-view="${e.id}">View photo</button>` : ``}
+      <div class="itemTop">
+        <div>
+          <div class="itemTitle">${e.title || "(Untitled)"}</div>
+          <div class="itemMeta">
+            Paid by <b>${e.paidBy || "-"}</b> • ${dateText || "-"}
+            <br/>
+            Original: <b>${money(e.amount)} ${e.currency}</b>
+            ${e.currency !== e.baseCurrency ? ` • Converted: <b>${money(e.baseAmount)} ${e.baseCurrency}</b>` : ` • <b>${e.baseCurrency}</b>`}
+          </div>
+          <div class="row tight" style="margin-top:8px; flex-wrap:wrap;">
+            ${receiptTag} ${fxTag}
+          </div>
+        </div>
+        <div class="itemActions">
+          ${e.receipt ? `<button class="btn small" data-act="view" data-id="${e.id}">View receipt</button>` : ""}
+          <button class="btn small" data-act="edit" data-id="${e.id}">Edit</button>
+          <button class="btn small danger" data-act="del" data-id="${e.id}">Delete</button>
+        </div>
       </div>
     `;
 
-    item.querySelector("[data-edit]")?.addEventListener("click", () => editExpense(e.id));
-    item.querySelector("[data-del]")?.addEventListener("click", () => deleteExpense(e.id));
-    item.querySelector("[data-view]")?.addEventListener("click", () => openModal(e.receiptDataUrl));
+    item.onclick = (ev) => {
+      const btn = ev.target.closest("button");
+      if (!btn) return;
+      const act = btn.dataset.act;
+      const id = btn.dataset.id;
+      if (act === "del") deleteExpense(id);
+      if (act === "edit") startEditExpense(id);
+      if (act === "view") openReceiptModal(id);
+    };
 
     list.appendChild(item);
   });
 }
 
-function renderBalancesAndSettlements() {
+function computeBalances(){
+  const g = getGroup();
+  const balances = {};
+  g.members.forEach(m=>balances[m]=0);
+
+  g.expenses.forEach(e=>{
+    const payer = e.paidBy;
+    const participants = Array.isArray(e.participants) ? e.participants : [];
+    if (!payer || participants.length === 0) return;
+
+    const total = Number(e.baseAmount);
+    if (!Number.isFinite(total) || total <= 0) return;
+
+    const share = total / participants.length;
+
+    // payer paid total, should receive from others (including themselves net later)
+    balances[payer] += total;
+
+    // each participant owes share
+    participants.forEach(p=>{
+      balances[p] -= share;
+    });
+  });
+
+  return balances;
+}
+
+function renderBalancesAndSettle(){
+  const g = getGroup();
   const balances = computeBalances();
 
-  const balList = el("balances");
-  if (balList) {
-    balList.innerHTML = "";
-    state.members.forEach((m) => {
-      const b = balances[m] ?? 0;
-      const sign = b > 0 ? "+" : "";
+  const bList = $("balancesList");
+  bList.innerHTML = "";
+  if (g.members.length === 0){
+    bList.innerHTML = `<div class="item muted">Add members to see balances.</div>`;
+  }else{
+    g.members.forEach(m=>{
+      const val = balances[m] || 0;
       const item = document.createElement("div");
       item.className = "item";
       item.innerHTML = `
-        <div class="title">${escapeHtml(m)}</div>
-        <div class="meta">Balance: <b>${sign}${fmtMoney(b)}</b></div>
+        <div class="itemTop">
+          <div>
+            <div class="itemTitle">${m}</div>
+            <div class="itemMeta">${val >= 0 ? "Should receive" : "Owes"}</div>
+          </div>
+          <div class="itemTitle">${money(Math.abs(val))} ${g.baseCurrency}</div>
+        </div>
       `;
-      balList.appendChild(item);
+      bList.appendChild(item);
     });
   }
 
-  const transfers = computeSettlements(balances);
-  const setList = el("settlements");
-  if (setList) {
-    setList.innerHTML = "";
-    if (transfers.length === 0) {
-      setList.innerHTML = `<div class="item"><div class="meta">All settled ✅</div></div>`;
-      return;
-    }
+  // Settle algorithm (greedy)
+  const settles = [];
+  const debtors = [];
+  const creditors = [];
 
-    transfers.forEach((t) => {
+  Object.entries(balances).forEach(([name,val])=>{
+    const v = Number(val);
+    if (!Number.isFinite(v)) return;
+    if (v < -0.01) debtors.push({name, amt:-v});
+    if (v > 0.01) creditors.push({name, amt:v});
+  });
+
+  debtors.sort((a,b)=>b.amt-a.amt);
+  creditors.sort((a,b)=>b.amt-a.amt);
+
+  let i=0, j=0;
+  while(i<debtors.length && j<creditors.length){
+    const d = debtors[i], c = creditors[j];
+    const pay = Math.min(d.amt, c.amt);
+    settles.push({from:d.name, to:c.name, amt:pay});
+    d.amt -= pay;
+    c.amt -= pay;
+    if (d.amt <= 0.01) i++;
+    if (c.amt <= 0.01) j++;
+  }
+
+  const sList = $("settleList");
+  sList.innerHTML = "";
+  if (settles.length === 0){
+    sList.innerHTML = `<div class="item muted">All settled ✅</div>`;
+  }else{
+    settles.forEach(t=>{
       const item = document.createElement("div");
       item.className = "item";
       item.innerHTML = `
-        <div class="title">${escapeHtml(t.from)} → ${escapeHtml(t.to)}</div>
-        <div class="meta">Pay <b>${fmtMoney(t.amount)}</b></div>
+        <div class="itemTop">
+          <div>
+            <div class="itemTitle">${t.from} → ${t.to}</div>
+            <div class="itemMeta">Pay to settle</div>
+          </div>
+          <div class="itemTitle">${money(t.amt)} ${g.baseCurrency}</div>
+        </div>
       `;
-      setList.appendChild(item);
+      sList.appendChild(item);
     });
   }
 }
 
-/* ----------------- Share / Export / Import / Reset ----------------- */
-
-function shareSummary() {
-  const balances = computeBalances();
-  const transfers = computeSettlements(balances);
-
-  let text = `SplitEasy Summary (${state.currency})\n\nMembers:\n- ${state.members.join("\n- ") || "(none)"}\n\nExpenses:\n`;
-  state.expenses
-    .slice()
-    .reverse()
-    .forEach((e) => {
-      text += `- ${e.title} | ${fmtDateTime(e.dateTimeISO)} | ${e.amount} paid by ${e.paidBy}\n`;
-    });
-
-  text += `\nBalances:\n`;
-  state.members.forEach((m) => {
-    const b = balances[m] ?? 0;
-    text += `- ${m}: ${b}\n`;
-  });
-
-  text += `\nSettle up:\n`;
-  if (transfers.length === 0) text += `- All settled\n`;
-  else transfers.forEach((t) => (text += `- ${t.from} pays ${t.to}: ${t.amount}\n`));
-
-  if (navigator.clipboard?.writeText) {
-    navigator.clipboard
-      .writeText(text)
-      .then(() => setMsg("Summary copied to clipboard ✅"))
-      .catch(() => alert(text));
-  } else alert(text);
-}
-
-function exportJSON() {
-  const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "spliteasy-export.json";
-  a.click();
-  URL.revokeObjectURL(a.href);
-  setMsg("Export downloaded ✅");
-}
-
-function importJSON(file) {
-  const reader = new FileReader();
-  reader.onload = () => {
-    try {
-      const data = JSON.parse(reader.result);
-      if (!data || !Array.isArray(data.members) || !Array.isArray(data.expenses)) return setMsg("Invalid file.", "err");
-      state.currency = data.currency || "USD";
-      state.members = data.members;
-      state.expenses = data.expenses;
-      setMsg("Imported ✅");
-      renderAll();
-      save();
-    } catch {
-      setMsg("Invalid JSON.", "err");
-    }
-  };
-  reader.readAsText(file);
-}
-
-function resetAll() {
-  if (!confirm("Reset all data? This cannot be undone.")) return;
-  state.currency = "USD";
-  state.members = [];
-  state.expenses = [];
-  save();
-  renderAll();
-  clearExpenseForm();
-  setMsg("Reset done.");
-}
-
-/* ----------------- Wiring ----------------- */
-
-async function fileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(r.result);
-    r.onerror = reject;
-    r.readAsDataURL(file);
-  });
-}
-
-function renderAll() {
-  if (el("currency")) el("currency").value = state.currency;
-
+function renderAll(){
+  renderGroups();
+  renderCurrencies();
   renderMembers();
   renderExpenses();
-  renderBalancesAndSettlements();
+  renderBalancesAndSettle();
 
-  const isCustom = el("splitType")?.value === "custom";
-  el("customSharesWrap")?.classList.toggle("hidden", !isCustom);
+  // trip name input
+  $("tripNameInput").value = getGroup().name || "";
+
+  // form mode hint
+  $("formMode").textContent = editExpenseId ? "Editing mode: Click 'Add expense' to save changes." : "";
 }
 
-function wire() {
-  // members
-  el("btnAddMember")?.addEventListener("click", addMember);
-  el("memberName")?.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") addMember();
+// ---------- Trips ----------
+function createTrip(){
+  const name = safeText(prompt("Trip name? (e.g., Trip 2, Bangkok Trip)"));
+  if (!name) return;
+
+  const g = {
+    id: uid("trip"),
+    name,
+    baseCurrency: "USD",
+    members: [],
+    expenses: []
+  };
+  DB.groups.push(g);
+  DB.currentGroupId = g.id;
+  saveDB();
+  editExpenseId = null;
+  clearExpenseForm(true);
+  renderAll();
+}
+
+function renameTrip(){
+  const name = safeText($("tripNameInput").value);
+  if (!name) return alert("Please type a trip name.");
+  const g = getGroup();
+  g.name = name;
+  saveDB();
+  renderGroups();
+}
+
+// ---------- Members ----------
+function addMember(){
+  const name = safeText($("memberName").value);
+  if (!name) return;
+
+  const g = getGroup();
+  if (g.members.includes(name)){
+    $("memberName").value = "";
+    return alert("Member already exists.");
+  }
+  g.members.push(name);
+  saveDB();
+  $("memberName").value = "";
+  renderMembers();
+  renderBalancesAndSettle();
+}
+
+function removeMember(name){
+  const g = getGroup();
+  // Remove member from list
+  g.members = g.members.filter(m=>m!==name);
+
+  // Remove from expenses payer/participants
+  g.expenses.forEach(e=>{
+    if (e.paidBy === name) e.paidBy = "";
+    if (Array.isArray(e.participants)){
+      e.participants = e.participants.filter(p=>p!==name);
+    }
   });
 
-  // expense
-  el("btnAddExpense")?.addEventListener("click", addExpense);
-  el("btnClearExpense")?.addEventListener("click", clearExpenseForm);
+  saveDB();
+  renderAll();
+}
 
-  el("splitType")?.addEventListener("change", () => {
-    const isCustom = el("splitType")?.value === "custom";
-    el("customSharesWrap")?.classList.toggle("hidden", !isCustom);
-    if (isCustom) renderCustomShares();
+// ---------- Expenses ----------
+function clearExpenseForm(keepCurrency=false){
+  $("expTitle").value = "";
+  $("expAmount").value = "";
+  $("paidBy").value = "";
+  $("receiptFile").value = "";
+  $("expDate").value = nowLocalInputValue();
+
+  // participants default all checked
+  Array.from($("participantsWrap").querySelectorAll('input[type="checkbox"]')).forEach(b=>b.checked=true);
+
+  if (!keepCurrency){
+    const g = getGroup();
+    $("expCurrency").value = g.baseCurrency || "USD";
+  }
+
+  editExpenseId = null;
+  $("btnAddExpense").textContent = "Add expense";
+  $("formMode").textContent = "";
+}
+
+async function addOrSaveExpense(){
+  const g = getGroup();
+  if (g.members.length === 0) return alert("Add members first.");
+
+  const title = safeText($("expTitle").value) || "Expense";
+  const amount = Number($("expAmount").value);
+  const currency = $("expCurrency").value;
+  const baseCurrency = g.baseCurrency || "USD";
+  const paidBy = $("paidBy").value;
+  const participants = getSelectedParticipants();
+  const dateISO = $("expDate").value ? new Date($("expDate").value).toISOString() : new Date().toISOString();
+  const dateTs = Date.parse(dateISO);
+
+  if (!paidBy) return alert("Select who paid.");
+  if (!Number.isFinite(amount) || amount <= 0) return alert("Enter a valid amount.");
+  if (!participants || participants.length === 0) return alert("Select participants.");
+
+  // receipt
+  let receipt = null;
+  const file = $("receiptFile").files && $("receiptFile").files[0];
+  if (file){
+    receipt = await readFileAsDataURL(file);
+  }
+
+  // convert to base
+  const baseAmount = await convert(amount, currency, baseCurrency);
+
+  const payload = {
+    id: editExpenseId || uid("exp"),
+    title,
+    amount,
+    currency,
+    baseCurrency,
+    baseAmount,
+    paidBy,
+    participants,
+    dateISO,
+    dateTs,
+    receipt: receipt
+  };
+
+  if (editExpenseId){
+    const idx = g.expenses.findIndex(e=>e.id===editExpenseId);
+    if (idx >= 0){
+      // keep old receipt if not replaced
+      if (!receipt && g.expenses[idx].receipt) payload.receipt = g.expenses[idx].receipt;
+      g.expenses[idx] = payload;
+    }
+    editExpenseId = null;
+  }else{
+    g.expenses.push(payload);
+  }
+
+  saveDB();
+  clearExpenseForm(true);
+  renderExpenses();
+  renderBalancesAndSettle();
+}
+
+function startEditExpense(id){
+  const g = getGroup();
+  const e = g.expenses.find(x=>x.id===id);
+  if (!e) return;
+
+  editExpenseId = id;
+  $("btnAddExpense").textContent = "Save changes";
+  $("formMode").textContent = "Editing mode: Update fields then click 'Save changes'.";
+
+  $("expTitle").value = e.title || "";
+  $("expAmount").value = e.amount || "";
+  $("expCurrency").value = e.currency || (g.baseCurrency||"USD");
+  $("paidBy").value = e.paidBy || "";
+  $("expDate").value = e.dateISO ? nowFromISOToLocalInput(e.dateISO) : nowLocalInputValue();
+
+  // participants
+  const set = new Set(e.participants || []);
+  Array.from($("participantsWrap").querySelectorAll('input[type="checkbox"]')).forEach(b=>{
+    b.checked = set.has(b.value);
   });
 
-  el("btnSelectAll")?.addEventListener("click", () => {
-    const pWrap = el("participantsWrap");
-    if (!pWrap) return;
-    Array.from(pWrap.querySelectorAll("input[type=checkbox]")).forEach((c) => (c.checked = true));
-    Array.from(pWrap.querySelectorAll(".pill")).forEach((p) => p.classList.add("active"));
-    if (el("splitType")?.value === "custom") renderCustomShares();
+  // receipt input cannot be pre-filled (browser security)
+  $("receiptFile").value = "";
+}
+
+function nowFromISOToLocalInput(iso){
+  try{
+    const d = new Date(iso);
+    const pad = (n) => String(n).padStart(2,"0");
+    const yyyy = d.getFullYear();
+    const mm = pad(d.getMonth()+1);
+    const dd = pad(d.getDate());
+    const hh = pad(d.getHours());
+    const mi = pad(d.getMinutes());
+    return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+  }catch{
+    return nowLocalInputValue();
+  }
+}
+
+function deleteExpense(id){
+  if (!confirm("Delete this expense?")) return;
+  const g = getGroup();
+  g.expenses = g.expenses.filter(e=>e.id!==id);
+  saveDB();
+  if (editExpenseId === id) clearExpenseForm(true);
+  renderExpenses();
+  renderBalancesAndSettle();
+}
+
+// ---------- Receipt view / gallery ----------
+function openReceiptModal(expId){
+  const g = getGroup();
+  const e = g.expenses.find(x=>x.id===expId);
+  if (!e || !e.receipt) return;
+
+  // open in new tab
+  const w = window.open();
+  if (w){
+    w.document.write(`<title>Receipt</title><img src="${e.receipt}" style="max-width:100%;height:auto;"/>`);
+  }else{
+    alert("Popup blocked. Please allow popups to view receipt.");
+  }
+}
+
+function openGallery(){
+  const g = getGroup();
+  const grid = $("galleryGrid");
+  grid.innerHTML = "";
+
+  const receipts = g.expenses
+    .filter(e=>e.receipt)
+    .sort((a,b)=>(b.dateTs||0)-(a.dateTs||0));
+
+  if (receipts.length === 0){
+    grid.innerHTML = `<div class="item muted">No receipts yet.</div>`;
+  }else{
+    receipts.forEach(e=>{
+      const img = document.createElement("img");
+      img.src = e.receipt;
+      img.alt = e.title || "receipt";
+      img.title = `${e.title || "Receipt"} — ${money(e.baseAmount)} ${e.baseCurrency}`;
+      img.onclick = () => openReceiptModal(e.id);
+      grid.appendChild(img);
+    });
+  }
+
+  $("galleryModal").classList.remove("hidden");
+}
+
+function closeGallery(){
+  $("galleryModal").classList.add("hidden");
+}
+
+// ---------- Share / QR ----------
+function openShare(){
+  const url = location.href;
+  $("shareLink").value = url;
+
+  // reset QR box
+  $("qrShareBox").innerHTML = "";
+  $("shareModal").classList.remove("hidden");
+}
+
+function closeShare(){
+  $("shareModal").classList.add("hidden");
+}
+
+async function copyText(text){
+  try{
+    await navigator.clipboard.writeText(text);
+    alert("Copied!");
+  }catch{
+    // fallback
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+    alert("Copied!");
+  }
+}
+
+async function nativeShare(){
+  const url = location.href;
+  if (!navigator.share){
+    alert("Native share is not supported on this device/browser.");
+    return;
+  }
+  try{
+    await navigator.share({
+      title:"SplitEasy",
+      text:"SplitEasy — Expense Splitter",
+      url
+    });
+  }catch{
+    // user canceled
+  }
+}
+
+function showQR(targetElId, text){
+  const box = $(targetElId);
+  box.innerHTML = "";
+  new QRCode(box, { text, width:220, height:220 });
+}
+
+// ---------- Export / Import ----------
+function exportJSON(){
+  const data = JSON.stringify(DB, null, 2);
+  downloadText("spliteasy_backup.json", data, "application/json");
+}
+
+async function importJSON(file){
+  try{
+    const txt = await readFileAsText(file);
+    const obj = JSON.parse(txt);
+
+    // basic validate
+    if (!obj || !Array.isArray(obj.groups)) throw new Error("Invalid backup file");
+    if (!obj.currentGroupId) obj.currentGroupId = obj.groups[0]?.id;
+
+    // ensure fields
+    obj.groups.forEach(g=>{
+      g.baseCurrency ||= "USD";
+      g.members ||= [];
+      g.expenses ||= [];
+    });
+    obj.version = 2;
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
+    location.reload();
+  }catch(err){
+    alert("Import failed: " + err.message);
+  }
+}
+
+// ---------- Dark Mode ----------
+function loadDark(){
+  const v = localStorage.getItem("spliteasy_dark");
+  if (v === "true") document.body.classList.add("dark");
+}
+function toggleDark(){
+  document.body.classList.toggle("dark");
+  localStorage.setItem("spliteasy_dark", document.body.classList.contains("dark"));
+}
+
+// ---------- Reset ----------
+function resetAll(){
+  if (!confirm("Reset ALL data? (Trips, members, expenses)")) return;
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(FX_CACHE_KEY);
+  DB = defaultDB();
+  saveDB();
+  editExpenseId = null;
+  location.reload();
+}
+
+// ---------- Wire ----------
+function wire(){
+  // init defaults
+  $("expDate").value = nowLocalInputValue();
+  loadDark();
+
+  // group selector
+  $("groupSelector").addEventListener("change", (e)=> setCurrentGroup(e.target.value));
+
+  // new trip
+  $("btnNewTrip").onclick = createTrip;
+
+  // rename trip
+  $("btnRenameTrip").onclick = renameTrip;
+
+  // base currency
+  $("baseCurrency").addEventListener("change", async (e)=>{
+    const g = getGroup();
+    g.baseCurrency = e.target.value;
+
+    // update expense currency default to base
+    $("expCurrency").value = g.baseCurrency;
+
+    // Recalculate all baseAmount for existing expenses
+    // (Convert from original currency to new base)
+    for (const exp of g.expenses){
+      exp.baseCurrency = g.baseCurrency;
+      exp.baseAmount = await convert(exp.amount, exp.currency, g.baseCurrency);
+    }
+
+    saveDB();
+    renderExpenses();
+    renderBalancesAndSettle();
   });
 
-  // currency
-  el("currency")?.addEventListener("change", () => {
-    state.currency = el("currency").value;
-    renderAll();
-    save();
-    setMsg("Currency updated ✅");
-  });
+  // dark
+  $("btnDark").onclick = toggleDark;
 
-  // share / export / import / reset
-  el("btnShare")?.addEventListener("click", shareSummary);
-  el("btnExport")?.addEventListener("click", exportJSON);
+  // share
+  $("btnShare").onclick = openShare;
+  $("btnCloseShare").onclick = closeShare;
+  $("btnCopyShare").onclick = ()=> copyText($("shareLink").value);
+  $("btnNativeShare").onclick = nativeShare;
+  $("btnQRShare").onclick = ()=> showQR("qrShareBox", location.href);
 
-  el("fileImport")?.addEventListener("change", (e) => {
-    const f = e.target.files?.[0];
+  // quick tools
+  $("btnCopyLink").onclick = ()=> copyText(location.href);
+  $("btnShowQR").onclick = ()=>{
+    $("qrWrap").classList.remove("hidden");
+    $("qrBox").innerHTML = "";
+    showQR("qrBox", location.href);
+  };
+  $("btnCloseQR").onclick = ()=> $("qrWrap").classList.add("hidden");
+
+  // export/import
+  $("btnExport").onclick = exportJSON;
+  $("importFile").addEventListener("change", (e)=>{
+    const f = e.target.files && e.target.files[0];
     if (f) importJSON(f);
     e.target.value = "";
   });
 
-  el("btnResetAll")?.addEventListener("click", resetAll);
+  // reset
+  $("btnReset").onclick = resetAll;
 
-  // search/sort
-  el("sortBy")?.addEventListener("change", renderExpenses);
-  el("search")?.addEventListener("input", renderExpenses);
+  // members
+  $("btnAddMember").onclick = addMember;
+  $("memberName").addEventListener("keydown", (e)=>{ if(e.key==="Enter") addMember(); });
 
-  // receipt
-  el("expReceipt")?.addEventListener("change", async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return setReceiptPreview(null);
-    const dataUrl = await fileToDataUrl(file);
-    setReceiptPreview(dataUrl);
-    setMsg("Photo attached ✅");
-  });
+  // participants quick
+  $("btnSelectAll").onclick = ()=>{
+    Array.from($("participantsWrap").querySelectorAll('input[type="checkbox"]')).forEach(b=>b.checked=true);
+  };
+  $("btnSelectNone").onclick = ()=>{
+    Array.from($("participantsWrap").querySelectorAll('input[type="checkbox"]')).forEach(b=>b.checked=false);
+  };
 
-  el("btnClearReceipt")?.addEventListener("click", () => {
-    if (el("expReceipt")) el("expReceipt").value = "";
-    setReceiptPreview(null);
-    setMsg("Photo removed.");
-  });
+  // expense
+  $("btnAddExpense").onclick = addOrSaveExpense;
+  $("btnClearExpense").onclick = ()=> clearExpenseForm(true);
 
-  // -------- MODAL CLOSE (FIXED) --------
-  // Close button
-  el("btnCloseModal")?.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    closeModal();
-  });
+  // history sort/search
+  $("sortExpenses").addEventListener("change", renderExpenses);
+  $("searchExpenses").addEventListener("input", renderExpenses);
 
-  // Click outside image (background) closes
-  el("modal")?.addEventListener("click", (e) => {
-    if (e.target && e.target.id === "modal") closeModal();
-  });
+  // gallery
+  $("btnOpenGallery").onclick = openGallery;
+  $("btnCloseGallery").onclick = closeGallery;
 
-  // ESC closes
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeModal();
-  });
+  // close modals by clicking outside
+  $("shareModal").addEventListener("click", (e)=>{ if(e.target.id==="shareModal") closeShare(); });
+  $("galleryModal").addEventListener("click", (e)=>{ if(e.target.id==="galleryModal") closeGallery(); });
 }
 
-/* ----------------- Init ----------------- */
-(function init() {
-  load();
-  wire();
+// ---------- Boot ----------
+function boot(){
+  // Ensure current group exists
+  if (!DB.groups.find(g=>g.id===DB.currentGroupId)){
+    DB.currentGroupId = DB.groups[0].id;
+    saveDB();
+  }
+
   renderAll();
-  clearExpenseForm();
-})();
+  wire();
+}
+
+boot();
