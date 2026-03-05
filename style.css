@@ -178,3 +178,114 @@ h2{margin:6px 0 10px 0}
   border-radius:12px;
   margin-top:10px;
 }
+/* =========================
+   MOBILE RESPONSIVE (PHONE)
+   Paste at bottom of style.css
+========================= */
+
+/* Make inputs/buttons not overflow on small screens */
+* { box-sizing: border-box; }
+img { max-width: 100%; height: auto; }
+
+/* Prevent sideways scroll */
+html, body { overflow-x: hidden; }
+
+/* Container spacing on phones */
+@media (max-width: 900px) {
+  body { padding: 0; }
+
+  /* Header: stack nicely */
+  .topbar {
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 14px 14px;
+  }
+
+  .brand {
+    width: 100%;
+    gap: 10px;
+  }
+
+  .toolbar {
+    width: 100%;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .toolbar select,
+  .toolbar button {
+    flex: 1 1 120px;   /* auto wrap */
+    min-width: 120px;
+  }
+
+  /* Main layout: 2 columns -> 1 column */
+  .container {
+    display: grid;
+    grid-template-columns: 1fr !important;
+    gap: 14px;
+    padding: 14px;
+    max-width: 100%;
+  }
+
+  /* Cards: full width */
+  .card {
+    width: 100%;
+    border-radius: 14px;
+    padding: 16px;
+  }
+
+  /* Text sizes smaller on phone */
+  h1, h2 { line-height: 1.2; }
+  h2 { font-size: 22px; }
+  .sub { font-size: 14px; }
+
+  /* Inputs & buttons: comfortable tap size */
+  .input, input, select, button {
+    font-size: 16px; /* prevents iOS zoom on input focus */
+  }
+
+  .row {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .row .input,
+  .row input,
+  .row select,
+  .row button {
+    width: 100%;
+    flex: 1 1 100%;
+  }
+
+  /* Expense form sections */
+  .participants {
+    gap: 8px;
+  }
+
+  /* History list spacing */
+  #expensesList {
+    max-height: none;
+  }
+
+  /* Modal fits phone */
+  .modal-card {
+    width: 92% !important;
+    max-width: 92% !important;
+    padding: 14px !important;
+  }
+
+  #modalImg {
+    max-height: 70vh;
+    object-fit: contain;
+  }
+}
+
+/* Extra-small phones */
+@media (max-width: 420px) {
+  .topbar { padding: 12px; }
+  .card { padding: 14px; }
+  .brand-title { font-size: 18px; }
+  .brand-sub { font-size: 12px; }
+}
